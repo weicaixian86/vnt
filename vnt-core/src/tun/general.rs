@@ -638,6 +638,9 @@ fn device_creation_error_context(mode: DeviceMode, error: &io::Error) -> &'stati
 /// 仅 Windows 实现；其他桌面平台返回错误（由调用方降级为日志）。采用 netsh
 /// 而非 IP Helper API，是因为 winapi 0.3 未导出 `SetInterfaceDnsSettings`，
 /// 而 netsh 语义等价、随系统自带，无需额外依赖。
+///
+/// 仅桌面平台编译：移动平台由宿主 VPN 接口（VpnService）配置 DNS，不经过这里。
+#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "tvos")))]
 fn apply_interface_dns(alias: &str, servers: &[Ipv4Addr]) -> anyhow::Result<()> {
     if alias.trim().is_empty() {
         anyhow::bail!("虚拟网卡名为空，无法设置接口 DNS");

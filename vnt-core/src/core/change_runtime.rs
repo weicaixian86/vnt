@@ -717,7 +717,9 @@ fn device_restart_fields_differ(current: &Config, target: &Config) -> bool {
 /// 依据配置计算需要应用到虚拟网卡接口的隧道 DNS 服务器列表。
 /// 仅当 `dns_tunnel=true` 时返回 `dns`（已为合法 IPv4）；关闭或为空返回空列表，
 /// 表示沿用物理网卡/系统 DNS。
-#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "tvos")))]
+///
+/// 纯计算、无平台依赖：桌面平台用于建卡/热更新，移动平台由宿主 VPN 接口
+/// 自行决定 DNS（这里保留以便 `start_device` 等共用代码在所有平台编译）。
 pub(crate) fn effective_dns(config: &Config) -> Vec<std::net::Ipv4Addr> {
     if config.dns_tunnel {
         config.dns.clone()
