@@ -397,7 +397,9 @@ jobs:
           if-no-files-found: error
   # deploys to github releases on tag
   deploy:
-    if: startsWith(github.ref, 'refs/tags/')
+    # 仅正式版本 tag（形如 v2.0.12，不带 -test/-dns 等后缀）才发布到 Release；
+    # 测试 tag 只出构建产物，跳过发布与版本校验。
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     needs: [build, build-android-jni]
     runs-on: ubuntu-latest
     steps:
@@ -426,7 +428,7 @@ jobs:
 
   desktop-windows:
     name: Build and publish VNT Desktop for Windows
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     needs: deploy
     runs-on: windows-latest
     steps:
@@ -471,7 +473,7 @@ jobs:
 
   release-notes:
     name: Add download links to release notes
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     needs: desktop-windows
     runs-on: ubuntu-latest
     steps:
