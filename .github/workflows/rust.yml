@@ -4,9 +4,9 @@ on:
   push:
     tags:
       - '*'
-  # 手动触发：仅构建并上传编译产物（Actions 页面可下载），不发布 Release。
-  # deploy / desktop-windows / release-notes 均以 startsWith(github.ref,'refs/tags/')
-  # 为条件，手动触发时会自动跳过，不会误发版本。
+  # 手动触发：只构建 Windows 桌面 EXE/MSI 安装包（最快，用于测试）。
+  # 手动触发时 build/build-android-jni/deploy/release-notes 均跳过，
+  # 仅运行 desktop-windows，产物上传为 Actions Artifact 可直接下载。
   workflow_dispatch:
 
 env:
@@ -23,6 +23,7 @@ permissions:
 jobs:
   build-web:
     name: Build Web frontend
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -50,6 +51,7 @@ jobs:
 
   build:
     name: Build ${{ matrix.TARGET }}
+    if: github.event_name != 'workflow_dispatch'
     needs: build-web
     strategy:
       fail-fast: false
@@ -305,6 +307,7 @@ jobs:
 
   build-android-jni:
     name: Build Android JNI (${{ matrix.abi }})
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -428,8 +431,8 @@ jobs:
 
   desktop-windows:
     name: Build and publish VNT Desktop for Windows
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: deploy
+    # tag 触发时发布到 Release；手动触发时只构建并上传 Artifact（最快测试用）。
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - name: Check out repository
@@ -448,12 +451,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
-      # 测试 tag（含 - 后缀，如 v2.0.12-dns-test）：
-      #  - 跳过严格的 tag==version 校验（测试 tag 名称本就不等于版本号）；
-      #  - 关闭 updater 产物（createUpdaterArtifacts），避免缺少
-      #    TAURI_SIGNING_PRIVATE_KEY 导致打包失败，也让测试包不带签名要求。
+      # 正式 tag：严格校验 tag==version。
       - name: Verify tag matches desktop version
-        if: ${{ !contains(github.ref_name, '-') }}
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
         shell: pwsh
         run: |
           $config = Get-Content vnt-desktop/src-tauri/tauri.conf.json | ConvertFrom-Json
@@ -461,8 +461,10 @@ jobs:
           if ($tagVersion -ne $config.version) {
             throw "Tag ${{ github.ref_name }} does not match desktop version $($config.version)"
           }
+      # 测试构建（手动触发或含 - 后缀的测试 tag）：
+      #  - 关闭 updater 产物 createUpdaterArtifacts，避免缺少签名私钥导致失败。
       - name: Prepare test build (disable updater artifacts)
-        if: ${{ contains(github.ref_name, '-') }}
+        if: ${{ github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-') }}
         shell: pwsh
         run: |
           $path = "vnt-desktop/src-tauri/tauri.conf.json"
@@ -470,7 +472,22 @@ jobs:
           $config.bundle.createUpdaterArtifacts = $false
           $config | ConvertTo-Json -Depth 100 | Set-Content $path -Encoding UTF8
           Write-Output "测试构建：已关闭 createUpdaterArtifacts"
+      # 手动触发：只构建 EXE/MSI 并上传为 Artifact（不发布 Release）。
+      - name: Build Windows installers (manual test build)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        working-directory: vnt-desktop
+        run: pnpm tauri build --bundles nsis,msi
+      - name: Upload Windows installers artifact
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: VNT-Desktop-Windows-setup
+          path: |
+            vnt-desktop/src-tauri/target/release/bundle/nsis/*.exe
+            vnt-desktop/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
       - name: Build and publish Windows desktop installers
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
