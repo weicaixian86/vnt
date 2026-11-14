@@ -397,9 +397,9 @@ jobs:
           if-no-files-found: error
   # deploys to github releases on tag
   deploy:
-    # 仅正式版本 tag（形如 v2.0.12，不带 -test/-dns 等后缀）才发布到 Release；
-    # 测试 tag 只出构建产物，跳过发布与版本校验。
-    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    # 正式 tag 与测试 tag 都上传构建产物到 Release（方便下载测试包）；
+    # 但测试 tag 不产出 updater 元数据（见下方 desktop-windows 的签名处理）。
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [build, build-android-jni]
     runs-on: ubuntu-latest
     steps:
@@ -428,7 +428,7 @@ jobs:
 
   desktop-windows:
     name: Build and publish VNT Desktop for Windows
-    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: deploy
     runs-on: windows-latest
     steps:
@@ -448,7 +448,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
+      # 测试 tag（含 - 后缀，如 v2.0.12-dns-test）：
+      #  - 跳过严格的 tag==version 校验（测试 tag 名称本就不等于版本号）；
+      #  - 关闭 updater 产物（createUpdaterArtifacts），避免缺少
+      #    TAURI_SIGNING_PRIVATE_KEY 导致打包失败，也让测试包不带签名要求。
       - name: Verify tag matches desktop version
+        if: ${{ !contains(github.ref_name, '-') }}
         shell: pwsh
         run: |
           $config = Get-Content vnt-desktop/src-tauri/tauri.conf.json | ConvertFrom-Json
@@ -456,6 +461,15 @@ jobs:
           if ($tagVersion -ne $config.version) {
             throw "Tag ${{ github.ref_name }} does not match desktop version $($config.version)"
           }
+      - name: Prepare test build (disable updater artifacts)
+        if: ${{ contains(github.ref_name, '-') }}
+        shell: pwsh
+        run: |
+          $path = "vnt-desktop/src-tauri/tauri.conf.json"
+          $config = Get-Content $path -Raw | ConvertFrom-Json
+          $config.bundle.createUpdaterArtifacts = $false
+          $config | ConvertTo-Json -Depth 100 | Set-Content $path -Encoding UTF8
+          Write-Output "测试构建：已关闭 createUpdaterArtifacts"
       - name: Build and publish Windows desktop installers
         uses: tauri-apps/tauri-action@v1
         env:
