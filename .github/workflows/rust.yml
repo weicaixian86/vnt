@@ -481,20 +481,24 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: pwsh
         run: |
-          $root = "vnt-desktop/src-tauri/target/release/bundle"
-          if (Test-Path $root) {
-            Get-ChildItem -Recurse $root | Select-Object FullName
-          } else {
-            Write-Output "bundle 目录不存在: $root"
-            Get-ChildItem -Recurse vnt-desktop/src-tauri/target/release -Filter *.exe -ErrorAction SilentlyContinue | Select-Object FullName
+          # src-tauri 是 cargo workspace 成员，产物统一在仓库根 target/ 下
+          $roots = @("target/release/bundle", "vnt-desktop/src-tauri/target/release/bundle")
+          foreach ($root in $roots) {
+            if (Test-Path $root) {
+              Write-Output "== $root =="
+              Get-ChildItem -Recurse $root | Select-Object FullName
+            }
           }
       - name: Upload Windows installers artifact
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/upload-artifact@v4
         with:
-          # 整个 bundle 目录都上传：无论产出 nsis(.exe)/msi/.msix 都能一并拿到
+          # src-tauri 属 workspace 成员，bundle 在仓库根 target/release/bundle 下；
+          # 同时兼容非 workspace 时的 src-tauri/target 路径
           name: VNT-Desktop-Windows-setup
-          path: vnt-desktop/src-tauri/target/release/bundle/**
+          path: |
+            target/release/bundle/**
+            vnt-desktop/src-tauri/target/release/bundle/**
           if-no-files-found: error
       - name: Build and publish Windows desktop installers
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
